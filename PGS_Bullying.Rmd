@@ -1,0 +1,1155 @@
+---
+title: "Polygenic Scores for Complex Traits Predict Multiple Informant Reported Bullying Victimisation: Findings from the Avon Longitudinal Study of Children and Adolescence"
+author: "Emma Francis"
+date: "`r Sys.Date()`"
+output: github_document
+always_allow_html: true
+---
+ 
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(eval = FALSE)
+```
+
+```{r, results='hide', echo=FALSE, message=FALSE, warning=FALSE, ERROR=FALSE}
+```
+
+### Overview
+
+##### Polygenic Scores for Complex Traits Predict Multiple Informant Reported Bullying Victimisation
+
+-   1.1 Load packages, read in data
+-   1.2 Create teacher and parent subsets
+-   1.3 Descriptives and mean victimisation scores by informants and age
+-   1.4 Pearson Correlation Matrix of Phenotypes and PGS
+-   1.5 Figure: Heatmap of the Included Phenotypes and PGS
+-   1.6 Bivariate Regression Models
+-   1.7 Figure: Bivariate Associations for PGS by Informants
+-   1.8 Multi-PGS in Teacher Subset
+-   1.9 Single-PGS in Teacher Subset
+-   2.0 Multi-PGS in Parent Subset
+-   2.1 Single-PGS in Parent Subset
+
+##### 1.1 Load packages, read in data
+
+```{r}
+
+library(foreign) # load the foreign package
+#library(plyr) # load plyr before dplyr to avoid conflict
+library(dplyr) 
+library(psych)
+library(tidyverse)
+library(finalfit)
+library(lavaan)
+library(weights)
+library(Hmisc)
+
+complete_data <- read.table("/Users/emma/Desktop/complete_data_02oct2023", header=T, check.names = FALSE) # Other users change path 
+head(complete_data)
+dim(complete_data)
+```
+
+##### 1.2 Create subsets #####
+```{r}
+##### Main model #####
+
+# Check overlap of variables for main model
+complete_data[c("LD_Pred_MDD_std","teacher_sumscale", "BFIS_total_mean", "parent_sumscale")] %>% missing_pattern 
+
+# Conditions need to satisfy in order to be included in the model, include genetic data and at least one phenotype:
+# PGS & TR, no PR or SR
+# PGS & PR, no TR or SR
+# PGS & SR, no TR or PR
+# PGS & TR  &  PR, no SR
+# PGS & TR & SR, no PR
+# PGS & PR & SR, no TR
+# PGS & TR & PR & SR
+
+main_model <- subset(complete_data, 
+  !is.na(LD_Pred_MDD_std) & !is.na(teacher_sumscale) & is.na(parent_sumscale) & is.na(BFIS_total_mean) # PGS & TR, no PR or SR
+   |!is.na(LD_Pred_MDD_std) & !is.na(parent_sumscale) & is.na(teacher_sumscale) & is.na(BFIS_total_mean) # PGS & PR, no TR or SR
+  |!is.na(LD_Pred_MDD_std) & !is.na(BFIS_total_mean) & is.na(teacher_sumscale) & is.na(parent_sumscale) # PGS & SR, no TR or PR
+   |!is.na(LD_Pred_MDD_std) & !is.na(teacher_sumscale) & !is.na(parent_sumscale) & is.na(BFIS_total_mean) # PGS & TR  &  PR, no SR
+|!is.na(LD_Pred_MDD_std) & !is.na(teacher_sumscale) & !is.na(BFIS_total_mean) & is.na(parent_sumscale) # PGS & TR & SR, no PR
+  |!is.na(LD_Pred_MDD_std) & !is.na(parent_sumscale) & !is.na(BFIS_total_mean) & is.na(teacher_sumscale) # PGS & PR & SR, no TR
+  |!is.na(LD_Pred_MDD_std) & !is.na(teacher_sumscale) & !is.na(parent_sumscale) & !is.na(BFIS_total_mean)) # PGS & TR & PR & SR
+
+dim(main_model) # 8319  148
+
+# Check overlap of variables for main model
+main_model[c("LD_Pred_MDD_std","teacher_sumscale", "BFIS_total_mean", "parent_sumscale")] %>% missing_pattern 
+
+##### Not included in Main model #####
+# For supplementary analysis comparing included versus non included
+
+#Conditions non included participants satisfy:
+# PGS & no TR, no PR, no SR
+# no PGS & TR & no SR, no PR
+# no PGS & PR & no SR, no TR
+# no PGS & SR & no PR, no TR
+# no PGS & SR & PR, no TR
+# no PGS & no SR & no PR, no TR
+# no PGS & no SR & PR, TR
+# no PGS & SR & no PR, TR
+# no PGS & SR &  PR, TR
+
+excl_main_model <- subset(complete_data, 
+  !is.na(LD_Pred_MDD_std) & is.na(teacher_sumscale) & is.na(parent_sumscale) & is.na(BFIS_total_mean) # PGS & no TR, no PR, no SR
+   |is.na(LD_Pred_MDD_std) & is.na(parent_sumscale) & !is.na(teacher_sumscale) & is.na(BFIS_total_mean) # no PGS & TR & no SR, no PR
+  |is.na(LD_Pred_MDD_std) & is.na(BFIS_total_mean) & is.na(teacher_sumscale) & !is.na(parent_sumscale) # no PGS & PR & no SR, no TR
+   |is.na(LD_Pred_MDD_std) & is.na(teacher_sumscale) & is.na(parent_sumscale) & !is.na(BFIS_total_mean) # no PGS & SR & no PR, no TR
+|is.na(LD_Pred_MDD_std) & is.na(teacher_sumscale) & !is.na(BFIS_total_mean) & !is.na(parent_sumscale) # no PGS & SR & PR, no TR
+  |is.na(LD_Pred_MDD_std) & is.na(parent_sumscale) & is.na(BFIS_total_mean) & is.na(teacher_sumscale) # no PGS & no SR & no PR, no TR
+  |is.na(LD_Pred_MDD_std) & !is.na(teacher_sumscale) & !is.na(parent_sumscale) & is.na(BFIS_total_mean) # no PGS & no SR & PR, TR
+  |is.na(LD_Pred_MDD_std) & !is.na(teacher_sumscale) & is.na(parent_sumscale) & !is.na(BFIS_total_mean) # no PGS & SR & no PR, TR
+  |is.na(LD_Pred_MDD_std) & !is.na(teacher_sumscale) & !is.na(parent_sumscale) & !is.na(BFIS_total_mean)) # no PGS & SR &  PR, TR
+
+dim(excl_main_model) # 7450  148
+# Check overlap of variables for main model
+excl_main_model[c("LD_Pred_MDD_std","teacher_sumscale", "BFIS_total_mean", "parent_sumscale")] %>% missing_pattern 
+
+# For supplementary material need teacher overlap and parent overlap
+##### Teacher model  #####
+teacher_model <- subset(complete_data, !is.na(teacher_sumscale) & !is.na(LD_Pred_MDD_std) 
+  | !is.na(BFIS_total_mean) & !is.na(LD_Pred_MDD))
+
+# Check overlap: Teacher model 
+complete_data[c("LD_Pred_MDD_std","teacher_sumscale", "BFIS_total_mean", "parent_sumscale")] %>% missing_pattern # should only be those with  PGS, and either self-report or parent-report or more
+
+dim(teacher_model) #  8110  148
+
+##### Parent model #####
+parent_model <- subset(complete_data, !is.na(parent_sumscale) & !is.na(LD_Pred_MDD_std) 
+  | !is.na(BFIS_total_mean) & !is.na(LD_Pred_MDD_std)
+   | !is.na(parent_sumscale) & !is.na(LD_Pred_MDD_std))
+
+head(parent_model)
+# Check overlap: Parent model 
+parent_model[c("LD_Pred_MDD_std","parent_sumscale", "BFIS_total_mean")] %>% missing_pattern # should only be those with PGS, and either self-report or parent-report or more
+
+dim(parent_model) # 7441  148
+```
+
+##### 1.3 Descriptives and mean victimisation scores by informants and age
+
+```{r}
+##### Descriptives, included ppts=main_model, not included ppts=excl_main_model
+
+# Sex
+prop.table(table(main_model$sex))*100  #1=male, 2=female
+table(main_model$sex, useNA = "always") # to view missing
+
+prop.table(table(excl_main_model$sex))*100  #1=male, 2=female
+table(excl_main_model$sex, useNA = "always") # to view missing
+
+# Age of mother birth (included)
+describe(main_model$age_mother_birth)
+mean(main_model$age_mother_birth, na.rm = TRUE) # 28.86128
+sd(main_model$age_mother_birth, na.rm = TRUE) # 4.577145
+range(main_model$age_mother_birth, na.rm = TRUE) # 15-45
+# Age of mother birth (not included)
+describe(excl_main_model$age_mother_birth)
+mean(excl_main_model$age_mother_birth, na.rm = TRUE) # 
+sd(excl_main_model$age_mother_birth, na.rm = TRUE) # 
+range(excl_main_model$age_mother_birth, na.rm = TRUE) # 
+
+# Maternal Social Class (included)
+#obtained at 32 week gestation
+#Social class was defined using the UK Registrar General’s occupational coding (SOC 90):
+#Elias, P. (1995) 'Social Class and the Standard Occupational Classification', in D. Rose (1995).
+#(1) Professional etc occupations
+#II Managerial and Technical occupations
+#III Skilled occupations
+# (N) non-manual
+#(M) manual 
+# IV Partly-skilled occupations
+# V Unskilled occupation
+table(main_model$social_class) # 65 = military
+describe(main_model$social_class) # number who reported, n=6403
+
+# Maternal Social Class (not included)
+table(excl_main_model$social_class) # 65 = military
+describe(excl_main_model$social_class) # number who reported, n=7450
+#amend the below for each cat
+#(122/7450)*100  #proportions
+
+# Maternal Education variables (included)
+#obtained at 32 week gestation
+
+# Degree
+table(main_model$gest_degree, useNA="always") #1=yes, 2=no, NA=772
+describe(main_model$gest_degree) # number who reported, n=7547
+
+# A-level
+table(main_model$gest_Alevel, useNA="always") #1=yes, 2=no, NA=772 
+describe(main_model$gest_Alevel) # number who reported, n=7547
+
+# O-level
+table(main_model$gest_Olevel, useNA="always") #1=yes, 2=no, NA=772
+describe(main_model$gest_Olevel) # number who reported, n=7547
+
+# CSE
+table(main_model$gest_CSE, useNA="always") #1=yes, 2=no, NA=772
+describe(main_model$gest_CSE) # number who reported, n=7547
+
+# No qualification
+table(main_model$gest_noqual, useNA="always") #1=yes, 2=no, NA=752
+describe(main_model$gest_noqual) # number who reported, n=7547
+#(285/7547)*100  #proportions
+
+# Maternal Education variables (not included)
+# Degree
+table(excl_main_model$gest_degree, useNA="always") #1=yes, 2=no, NA=2333
+describe(excl_main_model$gest_degree) # number who reported, n=5117
+
+# A-level
+table(excl_main_model$gest_Alevel, useNA="always") #1=yes, 2=no, NA=2333 
+describe(excl_main_model$gest_Alevel) # number who reported, n=5117
+
+# O-level
+table(excl_main_model$gest_Olevel, useNA="always") #1=yes, 2=no, NA=2333
+describe(excl_main_model$gest_Olevel) # number who reported, n=5117
+
+# CSE
+table(excl_main_model$gest_CSE, useNA="always") #1=yes, 2=no, NA=2333
+describe(excl_main_model$gest_CSE) # number who reported, n=5117
+
+# No qualification
+table(excl_main_model$gest_noqual, useNA="always") #1=yes, 2=no, NA=2333
+describe(excl_main_model$gest_noqual) # number who reported, n=5117
+
+# percentage female included versus not included
+describe(main_model$sex==2) # report TRUE n=4082, 0.492*100
+describe(excl_main_model$sex==2) # report TRUE n=3316, 0.484*100
+
+##### Mean victimisation for sum scales by informants #####
+##### Teacher composite score included #####
+describe(main_model$teacher_sumscale) #n=6258
+mean(main_model$teacher_sumscale, na.rm = TRUE) # 2.287152
+sd(main_model$teacher_sumscale, na.rm = TRUE) # 0.7435178
+range(main_model$teacher_sumscale, na.rm = TRUE) # 2-6
+
+##### Teacher composite score not included #####
+describe(excl_main_model$teacher_sumscale) #n=3741
+mean(excl_main_model$teacher_sumscale, na.rm = TRUE) # 2.339749
+sd(excl_main_model$teacher_sumscale, na.rm = TRUE) # 0.7435178
+range(excl_main_model$teacher_sumscale, na.rm = TRUE) # 2-6
+#Percent female
+table(excl_main_model$teacher_sumscale, excl_main_model$sex==2) # tally the true column
+# FALSE TRUE
+#  2  1508 1550
+#  3   138  101
+#  4   207  152
+# 5    10    5
+#  6    36   31
+#1550+101+152+5+31+1508+138+207+10+36  #3738, total sample
+#1550+101+152+5+31 # 1839, report female
+#1839/3738*100  #females reported in sample
+
+
+##### Self-report composite score included  #####
+describe(main_model$BFIS_total_mean) #n=6730
+mean(main_model$BFIS_total_mean, na.rm = TRUE) # -0.01170297
+sd(main_model$BFIS_total_mean, na.rm = TRUE) # 0.984831
+range(main_model$BFIS_total_mean, na.rm = TRUE) # -0.9132616  6.9867758
+#Percent female
+table(main_model$BFIS_total_mean<7, main_model$sex==2) # tally the true column, <7 will capture all reporting
+#      FALSE TRUE
+#TRUE  3354 3363 # 3363, report female
+#3354+3363 #6717, total
+#3363/6717*100  #females reported in sample
+
+##### Self-report composite score not included  #####
+describe(excl_main_model$BFIS_total_mean) #n=1703
+mean(excl_main_model$BFIS_total_mean, na.rm = TRUE) # 0.05
+sd(excl_main_model$BFIS_total_mean, na.rm = TRUE) # 1.05
+range(excl_main_model$BFIS_total_mean, na.rm = TRUE) # -0.9132616  6.9867758
+#Percent female
+table(excl_main_model$BFIS_total_mean<7, excl_main_model$sex==2) # tally the true column, <7 will capture all reporting
+#      FALSE TRUE
+#TRUE  841  860 # 860, report female
+#841+860 #1701, total
+#860/1701*100  #females reported in sample
+
+##### Parent composite score included  #####
+describe(main_model$parent_sumscale) #n=6668
+mean(parent_model$parent_sumscale, na.rm = TRUE) # 2.506599
+sd(parent_model$parent_sumscale, na.rm = TRUE) # 0.8977005
+range(parent_model$parent_sumscale, na.rm = TRUE) # 2-6
+#Percent female
+table(parent_model$parent_sumscale, parent_model$sex==2) # tally the true column
+#     FALSE TRUE
+#2    2298 2407
+#3    454  427
+#4    481  373
+#5    72   51
+#6    63   42
+#3300+2298+454+481+72+63 #6668, total sample
+#2407+427+373+51+42 # 3300, report female
+#3300/6668*100  #females reported in sample
+
+##### Parent composite score not included  #####
+describe(excl_main_model$parent_sumscale) #n=2140
+mean(excl_main_model$parent_sumscale, na.rm = TRUE) # 2.53
+sd(excl_main_model$parent_sumscale, na.rm = TRUE) # 0.9467776
+range(excl_main_model$parent_sumscale, na.rm = TRUE) # 2-6
+# Percent female
+table(excl_main_model$parent_sumscale, excl_main_model$sex==2) # tally the true column
+#     FALSE TRUE
+#2   772  755
+#  3   105  121
+#  4   166  139
+#  5    22   13
+#  6    26   21
+#755+121+139+13+21+772+105+166+166+22+26  #2306, total sample
+#755+121+139+13+21 # 1049, report female
+#1049/2306*100  #females reported in sample
+
+# Compare included versus not included (mean comparison for cont var. chi squared for binary)
+complete_data$inclusion[complete_data$cidB3496 %in% main_model$cidB3496] <- 1
+complete_data$inclusion[is.na(complete_data$inclusion)] <- 0
+table(complete_data$inclusion)
+class(complete_data$inclusion)
+
+# Comparing age of mother at birth 
+t.test(complete_data$age_mother_birth, complete_data$inclusion, alternative = "two.sided", var.equal = FALSE) # Welch Two Sample t-test
+
+# Compare female included
+chisq.test(complete_data$sex==2, complete_data$inclusion)
+
+# Comparing social class
+str(complete_data$social_class) # check type of variable
+# ordinal
+complete_data <- complete_data %>%
+  dplyr::mutate(social_class_ord = as.factor(social_class) %>% as.ordered())
+str(complete_data$social_class_ord)
+levels(complete_data$social_class_ord)
+# Chosen chisquared for consistency - similar findings for all approaches
+#wilcox.test(social_class ~ inclusion, data=complete_data) 
+chisq.test(complete_data$social_class_ord, complete_data$inclusion)
+
+# Comparing education variables
+# compare degree across included versus not included 
+chisq.test(complete_data$gest_degree, complete_data$inclusion)
+# compare a-level across included versus not included 
+chisq.test(complete_data$gest_Alevel, complete_data$inclusion)
+# compare o-level across included versus not included
+chisq.test(complete_data$gest_Olevel, complete_data$inclusion)
+# compare cse across included versus not included
+chisq.test(complete_data$gest_CSE, complete_data$inclusion)
+# compare no qualifactions across included versus not included
+chisq.test(complete_data$gest_noqual, complete_data$inclusion)
+
+# Comparing composite scores
+# compare self-report composite score across included versus not included (Welch Two Sample t-test)
+t.test(complete_data$BFIS_total_mean ~ complete_data$inclusion, alternative = "two.sided", var.equal = FALSE)
+
+# compare parent-report composite score across included versus not included
+t.test(complete_data$parent_sumscale ~ complete_data$inclusion, alternative = "two.sided", var.equal = FALSE)
+# compare teacher-report composite score across included versus not included
+t.test(complete_data$teacher_sumscale ~ complete_data$inclusion, alternative = "two.sided", var.equal = FALSE)
+```
+
+##### 1.4 Pearson Correlation Matrix of Phenotypes and PGS 
+```{r}
+complete_data_subset <- main_model[,c("parent_sumscale", "teacher_sumscale", "BFIS_total_mean", "LD_Pred_ADHD", "LD_Pred_MDD", "LD_Pred_EA", "LD_Pred_BMI", "LD_Pred_ANX", "LD_Pred_NEURO", "LD_Pred_SZ")] # only phenotype and polygenic scores in the correlation table
+wtd.cor(complete_data_subset) # reports correlation with all digits
+cor<-corr.test(complete_data_subset) # correlations between variables (2digits)
+print(cor, short=FALSE) # report unadjusted confidence intervals
+rcorr(as.matrix(complete_data_subset)) # reports p values
+
+# self-report and teacher-report
+cor.test(complete_data_subset$teacher_sumscale, complete_data_subset$BFIS_total_mean, method='pearson') 
+# parent and self-report
+cor.test(complete_data_subset$parent_sumscale, complete_data_subset$BFIS_total_mean, method='pearson') 
+```
+
+##### 1.5 Figure: Heatmap of the Included Phenotypes and PGS ##### 
+```{r}
+# Rename variable names in subset 
+complete_data_rename <- dplyr::rename(complete_data_subset, SR = BFIS_total_mean,
+                      PR = parent_sumscale,TR = teacher_sumscale, 
+                      EA = LD_Pred_EA, MDD = LD_Pred_MDD,ADHD = LD_Pred_ADHD, 
+                      BMI = LD_Pred_BMI, NEURO = LD_Pred_NEURO,
+                      ANX = LD_Pred_ANX, SZ = LD_Pred_SZ)
+head(complete_data_rename)
+
+# Plot
+library(corrplot)
+X <-cor(complete_data_rename, use='p')
+          type = 'upper'
+          col=colorRampPalette(c("blue","white","red"))(20) 
+          order = c("original") # default 
+          tl.col = "black"
+          tl.srt=45 # colour of text and angle of x labels
+
+colnames(X) <- c("Parent-report", "Teacher-report", "Self-report", "ADHD", "Depression", "Education Attainment", "Body Mass Index","Anxiety", "Neuroticism", "Schizophrenia")
+rownames(X) <- c("Parent-report", "Teacher-report", "Self-report", "ADHD", "Depression", "Education Attainment", "Body Mass Index","Anxiety", "Neuroticism", "Schizophrenia")
+# Edit figure 
+#corrplot(cor(X, use='p'), 
+ #         type = 'upper',col=colorRampPalette(c("blue","white","red"))(20), 
+#          order = c("original"), # default 
+#          tl.col = "black",tl.srt=45) # colour of text and angle of x labels
+
+
+# Edit figure 
+corrplot(X, 
+          type = 'upper',col=colorRampPalette(c("blue","white","red"))(20), 
+          order = c("original"), # default 
+          tl.col = "black",tl.srt=55) # colour of text and angle of x labels
+
+# Rename variable names in subset in preparation for bivariate association analysis and figure 2 - use the standardised pgs
+complete_data_figure2<- dplyr::rename(complete_data, SR = BFIS_total_mean,
+                      PR = parent_sumscale,TR = teacher_sumscale, 
+                      EA = LD_Pred_EA_std, MDD = LD_Pred_MDD_std, ADHD = LD_Pred_ADHD_std, 
+                      BMI = LD_Pred_BMI_std, NEURO = LD_Pred_NEURO_std,
+                      ANX = LD_Pred_ANX_std, SZ = LD_Pred_SZ_std, AN = LD_Pred_AN_std)
+
+head(complete_data_figure2)
+```
+
+##### 1.6 Bivariate Regression Models 
+```{r}
+##### Self-report #####
+
+#PGS-MDD
+self_mdd <- '
+            # regressions
+            SR ~ MDD + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+            '
+fit_self <- sem(self_mdd, data=complete_data_figure2, estimator = "ML", missing="FIML.x", fixed.x = FALSE) # added .x as without this does not impute all pred and outcome
+summary(fit_self, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_self, ci = TRUE, level = 0.95)
+merge1 <- parameterEstimates(fit_self, ci = TRUE, level = 0.95)
+merge1 <- merge1[1:1, ]
+merge1
+
+#PGS-SZ
+self_sz <- '
+            # regressions
+            SR ~ SZ + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+            '
+fit_self <- sem(self_sz, data=complete_data_figure2, estimator = "ML", missing="FIML.x", fixed.x = FALSE) # added .x as without this does not impute all pred and outcome
+summary(fit_self, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_self, ci = TRUE, level = 0.95)
+merge2 <- parameterEstimates(fit_self, ci = TRUE, level = 0.95)
+merge2 <- merge2[1:1, ]
+merge2
+
+#PGS-ADHD
+self_adhd <- '
+            # regressions
+            SR ~ ADHD + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+            '
+fit_self <- sem(self_adhd, data=complete_data_figure2, estimator = "ML", missing="FIML.x", fixed.x = FALSE) # added .x as without this does not impute all pred and outcome
+summary(fit_self, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_self, ci = TRUE, level = 0.95)
+merge3 <- parameterEstimates(fit_self, ci = TRUE, level = 0.95)
+merge3 <- merge3[1:1, ]
+merge3
+
+#PGS-Anxiety
+self_anx <- '
+            # regressions
+            SR ~ ANX + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+            '
+fit_self <- sem(self_anx, data=complete_data_figure2, estimator = "ML", missing="FIML.x", fixed.x = FALSE) # added .x as without this does not impute all pred and outcome
+summary(fit_self, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_self, ci = TRUE, level = 0.95)
+merge4 <- parameterEstimates(fit_self, ci = TRUE, level = 0.95)
+merge4 <- merge4[1:1, ]
+merge4
+
+#PGS-Neuroticism
+self_neuro <- '
+            # regressions
+            SR ~ NEURO + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+            '
+fit_self <- sem(self_neuro, data=complete_data_figure2, estimator = "ML", missing="FIML.x", fixed.x = FALSE) # added .x as without this does not impute all pred and outcome
+summary(fit_self, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_self, ci = TRUE, level = 0.95)
+merge5 <- parameterEstimates(fit_self, ci = TRUE, level = 0.95)
+merge5 <- merge5[1:1, ]
+merge5
+
+#PGS-BMI
+self_bmi <- '
+            # regressions
+            SR ~  BMI  + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+            '
+fit_self <- sem(self_bmi, data=complete_data_figure2, estimator = "ML", missing="FIML.x", fixed.x = FALSE) # added .x as without this does not impute all pred and outcome
+summary(fit_self, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_self, ci = TRUE, level = 0.95)
+merge6 <- parameterEstimates(fit_self, ci = TRUE, level = 0.95)
+merge6 <- merge6[1:1, ]
+merge6
+
+#PGS-Education attainment
+self_ea <- '
+            # regressions
+            SR ~ EA + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+            '
+fit_self <- sem(self_ea, data=complete_data_figure2, estimator = "ML", missing="FIML.x", fixed.x = FALSE) # added .x as without this does not impute all pred and outcome
+summary(fit_self, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_self, ci = TRUE, level = 0.95)
+merge7 <- parameterEstimates(fit_self, ci = TRUE, level = 0.95)
+merge7 <- merge7[1:1, ]
+merge7
+
+merged_data <- bind_rows(merge1, merge2, merge3, merge4, merge5, merge6, merge7)
+merged_data # check
+
+##### Parent-report #####
+#PGS-MDD
+parent_mdd <- '
+                # regressions
+                PR ~ MDD  + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                '
+fit_parent <- sem(parent_mdd, data=complete_data_figure2, estimator = "ML", missing="FIML.x", fixed.x = FALSE) # added .x as without this does not impute all pred and outcome
+summary(fit_parent, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_parent, ci = TRUE, level = 0.95)
+merge8 <- parameterEstimates(fit_parent, ci = TRUE, level = 0.95)
+merge8 <- merge8[1:1, ] # by default head only shows first 6 col, we need first 7
+merge8
+
+#PGS-SZ
+parent_sz <- '
+            # regressions
+            PR ~ SZ + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+            '
+fit_parent <- sem(parent_sz, data=complete_data_figure2, estimator = "ML", missing="FIML.x", fixed.x = FALSE) # added .x as without this does not impute all pred and outcome
+summary(fit_parent, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_parent, ci = TRUE, level = 0.95)
+merge9 <- parameterEstimates(fit_parent, ci = TRUE, level = 0.95)
+merge9 <- merge9[1:1, ]
+merge9
+
+#PGS-ADHD
+parent_adhd <- '
+            # regressions
+            PR ~ ADHD + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+            '
+fit_parent <- sem(parent_adhd, data=complete_data_figure2, estimator = "ML", missing="FIML.x", fixed.x = FALSE) # added .x as without this does not impute all pred and outcome
+summary(fit_parent, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_parent, ci = TRUE, level = 0.95)
+merge10 <- parameterEstimates(fit_parent, ci = TRUE, level = 0.95)
+merge10 <- merge10[1:1, ]
+merge10
+
+#PGS-Anxiety
+parent_anx <- '
+            # regressions
+            PR ~ ANX + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+            '
+fit_parent <- sem(parent_anx, data=complete_data_figure2, estimator = "ML", missing="FIML.x", fixed.x = FALSE) # added .x as without this does not impute all pred and outcome
+summary(fit_parent, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_parent, ci = TRUE, level = 0.95)
+merge11 <- parameterEstimates(fit_parent, ci = TRUE, level = 0.95)
+merge11 <- merge11[1:1, ]
+merge11
+
+#PGS-Neuroticism
+parent_neuro <- '
+            # regressions
+            PR ~ NEURO + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+            '
+fit_parent <- sem(parent_neuro, data=complete_data_figure2, estimator = "ML", missing="FIML.x", fixed.x = FALSE) # added .x as without this does not impute all pred and outcome
+summary(fit_parent, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_parent, ci = TRUE, level = 0.95)
+merge12 <- parameterEstimates(fit_parent, ci = TRUE, level = 0.95)
+merge12 <- merge12[1:1, ]
+merge12
+
+#PGS-BMI
+parent_bmi <- '
+            # regressions
+            PR ~ BMI + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+            '
+fit_parent <- sem(parent_bmi, data=complete_data_figure2, estimator = "ML", missing="FIML.x", fixed.x = FALSE) # added .x as without this does not impute all pred and outcome
+summary(fit_parent, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_parent, ci = TRUE, level = 0.95)
+merge13 <- parameterEstimates(fit_parent, ci = TRUE, level = 0.95)
+merge13 <- merge13[1:1, ]
+merge13
+
+#PGS-Education attainment
+parent_ea <- '
+            # regressions
+            PR ~ EA + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+            '
+fit_parent <- sem(parent_ea, data=complete_data_figure2, estimator = "ML", missing="FIML.x", fixed.x = FALSE) # added .x as without this does not impute all pred and outcome
+summary(fit_parent, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_parent, ci = TRUE, level = 0.95)
+merge14 <- parameterEstimates(fit_parent, ci = TRUE, level = 0.95)
+merge14 <- merge14[1:1, ]
+merge14
+
+##### Teacher-report #####
+#PGS-MDD
+teacher_mdd <- '
+                # regressions
+                TR ~ MDD + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+            '
+fit_teacher <- sem(teacher_mdd, data=complete_data_figure2, estimator = "ML", missing="FIML.x", fixed.x=FALSE) # added .x as without this does not impute all pred and outcome, may need to add fixed.x = FALSE
+summary(fit_teacher, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_teacher, ci = TRUE, level = 0.95)
+merge15 <- parameterEstimates(fit_teacher, ci = TRUE, level = 0.95)
+merge15 <- merge15[1:1, ] 
+merge15 
+
+#PGS-SZ
+teacher_sz <- '
+            # regressions
+            TR ~ SZ + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+            '
+fit_teacher <- sem(teacher_sz, data=complete_data_figure2, estimator = "ML", missing="FIML.x", fixed.x = FALSE) # added .x as without this does not impute all pred and outcome
+summary(fit_teacher, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_teacher, ci = TRUE, level = 0.95)
+merge16 <- parameterEstimates(fit_teacher, ci = TRUE, level = 0.95)
+merge16 <- merge16[1:1, ]
+merge16
+
+#PGS-ADHD
+teacher_adhd <- '
+            # regressions
+            TR ~ ADHD + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+            '
+fit_teacher <- sem(teacher_adhd, data=complete_data_figure2, estimator = "ML", missing="FIML.x", fixed.x = FALSE) # added .x as without this does not impute all pred and outcome
+summary(fit_teacher, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_teacher, ci = TRUE, level = 0.95)
+merge17 <- parameterEstimates(fit_teacher, ci = TRUE, level = 0.95)
+merge17 <- merge17[1:1, ]
+merge17
+
+#PGS-Anxiety
+teacher_anx <- '
+            # regressions
+            TR ~ ANX + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+            '
+fit_teacher <- sem(teacher_anx, data=complete_data_figure2, estimator = "ML", missing="FIML.x", fixed.x = FALSE) # added .x as without this does not impute all pred and outcome
+summary(fit_teacher, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_teacher, ci = TRUE, level = 0.95)
+merge18 <- parameterEstimates(fit_teacher, ci = TRUE, level = 0.95)
+merge18 <- merge18[1:1, ]
+merge18
+
+#PGS-Neuroticism
+teacher_neuro <- '
+            # regressions
+            TR ~ NEURO + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+            '
+fit_teacher <- sem(teacher_neuro, data=complete_data_figure2, estimator = "ML", missing="FIML.x", fixed.x = FALSE) # added .x as without this does not impute all pred and outcome
+summary(fit_teacher, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_teacher, ci = TRUE, level = 0.95)
+merge19 <- parameterEstimates(fit_teacher, ci = TRUE, level = 0.95)
+merge19 <- merge19[1:1, ]
+merge19
+
+#PGS-BMI
+teacher_bmi <- '
+            # regressions
+            TR ~ BMI + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+            '
+fit_teacher <- sem(teacher_bmi, data=complete_data_figure2, estimator = "ML", missing="FIML.x", fixed.x = FALSE) # added .x as without this does not impute all pred and outcome
+summary(fit_teacher, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_teacher, ci = TRUE, level = 0.95)
+merge20 <- parameterEstimates(fit_teacher, ci = TRUE, level = 0.95)
+merge20 <- merge20[1:1, ]
+merge20
+
+#PGS-Education attainment
+teacher_ea <- '
+            # regressions
+            TR ~ EA + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+            '
+fit_teacher <- sem(teacher_ea, data=complete_data_figure2, estimator = "ML", missing="FIML.x", fixed.x = FALSE) # added .x as without this does not impute all pred and outcome
+summary(fit_teacher, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_teacher, ci = TRUE, level = 0.95)
+merge21 <- parameterEstimates(fit_teacher, ci = TRUE, level = 0.95)
+merge21 <- merge21[1:1, ]
+merge21
+
+# Merge the data together for figure: https://dplyr.tidyverse.org/reference/bind.html
+merged_data <- bind_rows(merge1, merge2, merge3, merge4, merge5, merge6, merge7, merge8, merge9,
+                          merge10, merge11, merge12, merge13, merge14, merge15, merge16, merge17,
+                          merge18, merge19, merge20, merge21) 
+
+merged_data
+```
+
+##### 1.7 Figure: Bivariate Associations for PGS by Informants
+```{r}
+merged_data # View
+
+merged_data2 <- merged_data %>%
+                 dplyr::rename("Informant" = "lhs", "PGS" = "rhs", "Estimate" = "est")
+merged_data2 # View  
+
+merged_data2$Informant <- rep(c("SR", "PR", "TR"), each = 7)
+merged_data2$star <- ifelse(merged_data2$pvalue < 0.05, "*", "")
+
+# Plot regression by informant
+p <- ggplot(merged_data2, aes(group = Informant)) +
+  geom_vline(xintercept = 0, linetype = 2) + #facet_grid(Class~Role, scales = "free_y") +
+  geom_errorbarh(data = merged_data2,
+                 mapping = aes(y = PGS, x = Estimate, xmin = ci.lower, xmax = ci.upper, 
+                               color = Informant),
+                 height = 0.6,
+                 size = 1, 
+                 position = position_dodge(0.7)) + 
+  geom_point(data = merged_data2, 
+             mapping = aes(y = PGS, x = Estimate, color = Informant), 
+             size = 3, shape = 19,
+             position = position_dodge(0.7)) +
+      geom_text(aes(x = Estimate, y = PGS, label = star), size = 6, position = position_dodge(0.7)) +
+   labs(x = "Estimate")
+
+p # view
+
+# Edit so colour in gigure is similar to earlier plotted figure
+# Solution for using colour twice: https://stackoverflow.com/questions/50733237/how-can-colour-be-added-manually-in-ggplot-and-legend-labels-renamed-in-the-same
+p + scale_color_manual(
+            values = c("blue", "orchid", "red"), #change colour
+            labels = c("Parent-report", "Self-report", "Teacher-report")) + # change legend names
+scale_y_discrete(labels = c("SZ"="Schizophrenia", "MDD"="Depression", "NEURO"="Neuroticism", 
+                  "EA"="Education Attainment", "BMI"="Body Mass Index", "ANX"="Anxiety")) # edit y axis labels
+```
+##### 1.8 Multi-PGS for Main Model 
+```{r}
+model1 <- model1 <- '
+                    # regressions
+                    BFIS_total_mean ~ teacher_sumscale + parent_sumscale + LD_Pred_MDD_std + LD_Pred_SZ_std + LD_Pred_ADHD_std + LD_Pred_ANX_std + LD_Pred_NEURO_std + LD_Pred_EA_std + LD_Pred_BMI_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std +  pc10_std
+                    
+                    teacher_sumscale ~ LD_Pred_MDD_std + LD_Pred_SZ_std + LD_Pred_ADHD_std + LD_Pred_ANX_std + LD_Pred_NEURO_std + LD_Pred_EA_std +  LD_Pred_BMI_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    
+                    parent_sumscale ~ LD_Pred_MDD_std + LD_Pred_SZ_std + LD_Pred_ADHD_std + LD_Pred_ANX_std + LD_Pred_NEURO_std + LD_Pred_EA_std + LD_Pred_BMI_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    
+                    LD_Pred_MDD_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    LD_Pred_SZ_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    LD_Pred_ADHD_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    LD_Pred_ANX_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    LD_Pred_NEURO_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    LD_Pred_EA_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    LD_Pred_BMI_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    
+                    #correlations
+                    parent_sumscale~~teacher_sumscale
+                    LD_Pred_MDD_std~~LD_Pred_SZ_std
+                    LD_Pred_MDD_std~~LD_Pred_ADHD_std
+                    LD_Pred_MDD_std~~LD_Pred_ANX_std
+                    LD_Pred_MDD_std~~LD_Pred_NEURO_std
+                    LD_Pred_MDD_std~~LD_Pred_EA_std
+                    LD_Pred_MDD_std~~LD_Pred_BMI_std
+                    
+                    LD_Pred_SZ_std~~LD_Pred_ADHD_std
+                    LD_Pred_SZ_std~~LD_Pred_ANX_std
+                    LD_Pred_SZ_std~~LD_Pred_NEURO_std
+                    LD_Pred_SZ_std~~LD_Pred_EA_std
+                    LD_Pred_SZ_std~~LD_Pred_BMI_std
+                    
+                    LD_Pred_ADHD_std~~LD_Pred_ANX_std
+                    LD_Pred_ADHD_std~~LD_Pred_NEURO_std
+                    LD_Pred_ADHD_std~~LD_Pred_EA_std
+                    LD_Pred_ADHD_std~~LD_Pred_BMI_std
+                    
+                    LD_Pred_ANX_std~~LD_Pred_NEURO_std
+                    LD_Pred_ANX_std~~LD_Pred_EA_std
+                    LD_Pred_ANX_std~~LD_Pred_BMI_std
+
+                    LD_Pred_NEURO_std~~LD_Pred_EA_std
+                    LD_Pred_NEURO_std~~LD_Pred_BMI_std
+                    
+                    LD_Pred_EA_std~~LD_Pred_BMI_std
+                    
+                    ' 
+fit_mod <- sem(model1, data=main_model, estimator = "ML", missing="FIML.x") 
+# added .x as without this does not impute all pred and outcome
+summary(fit_mod, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_mod, ci = TRUE, level = 0.95) # save variables
+```
+##### 1.9 Single-PGS in Main model - MDD
+```{r}
+##### Main model - Single PGS-MDD #####
+model1_mdd <- '
+                    # regressions
+                    BFIS_total_mean ~ parent_sumscale + teacher_sumscale + LD_Pred_MDD_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    parent_sumscale ~ LD_Pred_MDD_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    
+                    teacher_sumscale ~ LD_Pred_MDD_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    
+                    LD_Pred_MDD_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    '
+fit_mod <- sem(model1_mdd, data=main_model, estimator = "ML", missing="FIML.x")
+summary(fit_mod, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_mod, ci = TRUE, level = 0.95)
+
+# Extract the beta estimates for PGS MDD on self-report, parent-report and teacher-report
+```
+##### 1.9 Single-PGS in Main model - SZ 
+```{r}
+model1_sz <- '
+                    # regressions
+                    BFIS_total_mean ~ parent_sumscale + teacher_sumscale + LD_Pred_SZ_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    parent_sumscale ~ LD_Pred_SZ_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    
+                    teacher_sumscale ~ LD_Pred_SZ_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    
+                    LD_Pred_SZ_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    '
+fit_mod <- sem(model1_sz, data=main_model, estimator = "ML", missing="FIML.x")
+summary(fit_mod, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_mod, ci = TRUE, level = 0.95)
+
+# Extract the beta estimates for PGS SZ on self-report, parent-report and teacher-report
+```
+##### 1.9 Single-PGS in Main model - ADHD
+```{r}
+model1_adhd <- '
+                    # regressions
+                    BFIS_total_mean ~ parent_sumscale + teacher_sumscale + LD_Pred_ADHD_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    parent_sumscale ~ LD_Pred_ADHD_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    
+                    teacher_sumscale ~ LD_Pred_ADHD_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    
+                    LD_Pred_ADHD_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    '
+fit_mod <- sem(model1_adhd, data=main_model, estimator = "ML", missing="FIML.x")
+summary(fit_mod, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_mod, ci = TRUE, level = 0.95)
+# Extract the beta estimates for PGS ADHD on self-report, parent-report and teacher-report
+```
+##### 1.9 Single-PGS in Main model - Anxiey
+```{r}
+model1_anx <- '
+                    # regressions
+                    BFIS_total_mean ~ parent_sumscale + teacher_sumscale + LD_Pred_ANX_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    parent_sumscale ~ LD_Pred_ANX_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    
+                    teacher_sumscale ~ LD_Pred_ANX_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    
+                    LD_Pred_ANX_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    '
+fit_mod <- sem(model1_anx, data=main_model, estimator = "ML", missing="FIML.x")
+summary(fit_mod, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_mod, ci = TRUE, level = 0.95)
+# Extract the beta estimates for PGS Anxiety on self-report, parent-report and teacher-report
+```
+##### 1.9 Single-PGS in Main model - Neuro
+```{r}
+model1_neuro <- '
+                    # regressions
+                    BFIS_total_mean ~ parent_sumscale + teacher_sumscale + LD_Pred_NEURO_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    parent_sumscale ~ LD_Pred_NEURO_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    
+                    teacher_sumscale ~ LD_Pred_NEURO_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    
+                    LD_Pred_NEURO_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    '
+fit_mod <- sem(model1_neuro, data=main_model, estimator = "ML", missing="FIML.x")
+summary(fit_mod, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_mod, ci = TRUE, level = 0.95)
+# Extract the beta estimates for PGS Neuroticism on self-report, parent-report and teacher-report
+```
+##### 1.9 Single-PGS in Main model - Educational attainment
+```{r}
+model1_ea <- '
+                    # regressions
+                    BFIS_total_mean ~ parent_sumscale + teacher_sumscale + LD_Pred_EA_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    parent_sumscale ~ LD_Pred_EA_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    
+                    teacher_sumscale ~ LD_Pred_EA_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    
+                    LD_Pred_EA_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    '
+fit_mod <- sem(model1_ea, data=main_model, estimator = "ML", missing="FIML.x")
+summary(fit_mod, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_mod, ci = TRUE, level = 0.95)
+# Extract the beta estimates for PGS Education Attainment on self-report, parent-report and teacher-report
+```
+##### 1.9 Single-PGS in Main model - BMI
+```{r}
+model1_bmi <- '
+                    # regressions
+                    BFIS_total_mean ~ parent_sumscale + teacher_sumscale + LD_Pred_BMI_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    parent_sumscale ~ LD_Pred_BMI_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    
+                    teacher_sumscale ~ LD_Pred_BMI_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    
+                    LD_Pred_BMI_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    '
+fit_mod <- sem(model1_bmi, data=main_model, estimator = "ML", missing="FIML.x")
+summary(fit_mod, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_mod, ci = TRUE, level = 0.95)
+# Extract the beta estimates for PGS BMI on self-report, parent-report and teacher-report
+```
+##### 1.8 Supplementary Table Multi-PGS in Teacher Subset 
+```{r}
+teacher_multipgs<- model1 <- '
+                    # regressions
+                    BFIS_total_mean ~ teacher_sumscale + LD_Pred_MDD_std + LD_Pred_SZ_std + LD_Pred_ADHD_std + LD_Pred_ANX_std + LD_Pred_NEURO_std + LD_Pred_EA_std + LD_Pred_BMI_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    
+                    teacher_sumscale ~ LD_Pred_MDD_std + LD_Pred_SZ_std + LD_Pred_ADHD_std + LD_Pred_ANX_std + LD_Pred_NEURO_std + LD_Pred_EA_std + LD_Pred_BMI_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    
+                    LD_Pred_MDD_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    LD_Pred_SZ_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    LD_Pred_ADHD_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    LD_Pred_ANX_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    LD_Pred_NEURO_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    LD_Pred_EA_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    LD_Pred_BMI_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+
+                    #correlations
+                    LD_Pred_MDD_std~~LD_Pred_SZ_std
+                    LD_Pred_MDD_std~~LD_Pred_ADHD_std
+                    LD_Pred_MDD_std~~LD_Pred_ANX_std
+                    LD_Pred_MDD_std~~LD_Pred_NEURO_std
+                    LD_Pred_MDD_std~~LD_Pred_EA_std
+                    LD_Pred_MDD_std~~LD_Pred_BMI_std
+                    
+                    LD_Pred_SZ_std~~LD_Pred_ADHD_std
+                    LD_Pred_SZ_std~~LD_Pred_ANX_std
+                    LD_Pred_SZ_std~~LD_Pred_NEURO_std
+                    LD_Pred_SZ_std~~LD_Pred_EA_std
+                    LD_Pred_SZ_std~~LD_Pred_BMI_std
+                    
+                    LD_Pred_ADHD_std~~LD_Pred_ANX_std
+                    LD_Pred_ADHD_std~~LD_Pred_NEURO_std
+                    LD_Pred_ADHD_std~~LD_Pred_EA_std
+                    LD_Pred_ADHD_std~~LD_Pred_BMI_std
+                    
+                    LD_Pred_ANX_std~~LD_Pred_NEURO_std
+                    LD_Pred_ANX_std~~LD_Pred_EA_std
+                    LD_Pred_ANX_std~~LD_Pred_BMI_std
+
+                    LD_Pred_NEURO_std~~LD_Pred_EA_std
+                    LD_Pred_NEURO_std~~LD_Pred_BMI_std
+                    
+                    LD_Pred_EA_std~~LD_Pred_BMI_std
+                    
+                    ' 
+fit_mod <- sem(teacher_multipgs, data=teacher_model, estimator = "ML", missing="FIML.x") # added .x as without this does not impute all pred and outcome
+summary(fit_mod, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_mod, ci = TRUE, level = 0.95) # save variables
+
+# Report the relationship between PGS and self-report, teacher-report, and between teacher and self-report
+```
+##### 1.9 Supplementary Table Single-PGS in Teacher Subset
+```{r}
+##### Single PGS-MDD in Teacher Subset #####
+teacher_mdd <- '
+                    # regressions
+                    BFIS_total_mean ~ teacher_sumscale + LD_Pred_MDD_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    teacher_sumscale ~ LD_Pred_MDD_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+          
+                    LD_Pred_MDD_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    '
+fit_mod <- sem(teacher_mdd, data=teacher_model, estimator = "ML", missing="FIML.x")
+summary(fit_mod, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_mod, ci = TRUE, level = 0.95)
+
+##### Single PGS-SZ in Teacher Subset #####
+teacher_sz <- '
+                    # regressions
+                    BFIS_total_mean ~ teacher_sumscale + LD_Pred_SZ_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    teacher_sumscale ~ LD_Pred_SZ_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+          
+                    LD_Pred_SZ_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    '
+fit_mod <- sem(teacher_sz, data=teacher_model, estimator = "ML", missing="FIML.x")
+summary(fit_mod, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_mod, ci = TRUE, level = 0.95)
+
+##### Single PGS-ADHD in Teacher Subset #####
+teacher_adhd <- '
+                    # regressions
+                    BFIS_total_mean ~ teacher_sumscale + LD_Pred_ADHD_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    teacher_sumscale ~ LD_Pred_ADHD_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+          
+                    LD_Pred_ADHD_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    '
+fit_mod <- sem(teacher_adhd, data=teacher_model, estimator = "ML", missing="FIML.x")
+summary(fit_mod, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_mod, ci = TRUE, level = 0.95)
+
+##### Single PGS-Anxiety in Teacher Subset #####
+teacher_anx <- '
+                    # regressions
+                    BFIS_total_mean ~ teacher_sumscale + LD_Pred_ANX_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    teacher_sumscale ~ LD_Pred_ANX_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+          
+                    LD_Pred_ANX_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    '
+fit_mod <- sem(teacher_anx, data=teacher_model, estimator = "ML", missing="FIML.x")
+summary(fit_mod, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_mod, ci = TRUE, level = 0.95)
+
+##### Single PGS-Neuro in Teacher Subset #####
+teacher_neuro <- '
+                    # regressions
+                    BFIS_total_mean ~ teacher_sumscale + LD_Pred_NEURO_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    teacher_sumscale ~ LD_Pred_NEURO_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+          
+                    LD_Pred_NEURO_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    '
+fit_mod <- sem(teacher_neuro, data=teacher_model, estimator = "ML", missing="FIML.x")
+summary(fit_mod, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_mod, ci = TRUE, level = 0.95)
+
+##### Single PGS-EA in Teacher Subset #####
+teacher_ea <- '
+                    # regressions
+                    BFIS_total_mean ~ teacher_sumscale + LD_Pred_EA_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    teacher_sumscale ~ LD_Pred_EA_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+          
+                    LD_Pred_EA_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    '
+fit_mod <- sem(teacher_ea, data=teacher_model, estimator = "ML", missing="FIML.x")
+summary(fit_mod, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_mod, ci = TRUE, level = 0.95)
+
+##### Single PGS-BMI in Teacher Subset #####
+teacher_bmi <- '
+                    # regressions
+                    BFIS_total_mean ~ teacher_sumscale + LD_Pred_BMI_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    teacher_sumscale ~ LD_Pred_BMI_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+          
+                    LD_Pred_BMI_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    '
+fit_mod <- sem(teacher_bmi, data=teacher_model, estimator = "ML", missing="FIML.x")
+summary(fit_mod, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_mod, ci = TRUE, level = 0.95)
+```
+##### 2.0 Supplementary Table Multi-PGS in Parent Subset
+```{r}
+parent_multipgs <- '
+                    # regressions
+                    BFIS_total_mean ~ parent_sumscale + LD_Pred_MDD_std + LD_Pred_SZ_std + LD_Pred_ADHD_std + LD_Pred_ANX_std + LD_Pred_NEURO_std + LD_Pred_EA_std + LD_Pred_BMI_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    parent_sumscale ~ LD_Pred_MDD_std + LD_Pred_SZ_std + LD_Pred_ADHD_std + LD_Pred_ANX_std + LD_Pred_NEURO_std + LD_Pred_EA_std + LD_Pred_BMI_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    
+                    LD_Pred_MDD_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    LD_Pred_SZ_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    LD_Pred_ADHD_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    LD_Pred_ANX_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    LD_Pred_NEURO_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    LD_Pred_EA_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    LD_Pred_BMI_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+
+                    #correlations
+                    LD_Pred_MDD_std~~LD_Pred_SZ_std
+                    LD_Pred_MDD_std~~LD_Pred_ADHD_std
+                    LD_Pred_MDD_std~~LD_Pred_ANX_std
+                    LD_Pred_MDD_std~~LD_Pred_NEURO_std
+                    LD_Pred_MDD_std~~LD_Pred_EA_std
+                    LD_Pred_MDD_std~~LD_Pred_BMI_std
+                    
+                    LD_Pred_SZ_std~~LD_Pred_ADHD_std
+                    LD_Pred_SZ_std~~LD_Pred_ANX_std
+                    LD_Pred_SZ_std~~LD_Pred_NEURO_std
+                    LD_Pred_SZ_std~~LD_Pred_EA_std
+                    LD_Pred_SZ_std~~LD_Pred_BMI_std
+                    
+                    LD_Pred_ADHD_std~~LD_Pred_ANX_std
+                    LD_Pred_ADHD_std~~LD_Pred_NEURO_std
+                    LD_Pred_ADHD_std~~LD_Pred_EA_std
+                    LD_Pred_ADHD_std~~LD_Pred_BMI_std
+                    
+                    LD_Pred_ANX_std~~LD_Pred_NEURO_std
+                    LD_Pred_ANX_std~~LD_Pred_EA_std
+                    LD_Pred_ANX_std~~LD_Pred_BMI_std
+
+                    LD_Pred_NEURO_std~~LD_Pred_EA_std
+                    LD_Pred_NEURO_std~~LD_Pred_BMI_std
+                    
+                    LD_Pred_EA_std~~LD_Pred_BMI_std
+                  
+                    ' 
+fit_mod <- sem(parent_multipgs, data=parent_model, estimator = "ML", missing="FIML.x")
+summary(fit_mod, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_mod, ci = TRUE, level = 0.95)
+
+```
+##### 2.1 Supplementary Table Single-PGS in Parent Subset ##### 
+```{r}
+##### Single PGS-MDD in Parent Subset 
+parent_mdd <- '
+                    # regressions
+                    BFIS_total_mean ~ parent_sumscale + LD_Pred_MDD_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    parent_sumscale ~ LD_Pred_MDD_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+          
+                    LD_Pred_MDD_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    '
+fit_mod <- sem(parent_mdd, data=parent_model, estimator = "ML", missing="FIML.x")
+summary(fit_mod, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_mod, ci = TRUE, level = 0.95)
+
+##### Single PGS-SZ in Parent Subset #####
+parent_sz <- '
+                    # regressions
+                    BFIS_total_mean ~ parent_sumscale + LD_Pred_SZ_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    parent_sumscale ~ LD_Pred_SZ_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+          
+                    LD_Pred_SZ_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    '
+fit_mod <- sem(parent_sz, data=parent_model, estimator = "ML", missing="FIML.x")
+summary(fit_mod, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_mod, ci = TRUE, level = 0.95)
+
+##### Single PGS-ADHD in Parent Subset #####
+parent_adhd <- '
+                    # regressions
+                    BFIS_total_mean ~ parent_sumscale + LD_Pred_ADHD_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    parent_sumscale ~ LD_Pred_ADHD_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+          
+                    LD_Pred_ADHD_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    '
+fit_mod <- sem(parent_adhd, data=parent_model, estimator = "ML", missing="FIML.x")
+summary(fit_mod, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_mod, ci = TRUE, level = 0.95)
+
+##### Single PGS-Anxiety in Parent Subset #####
+parent_anx <- '
+                    # regressions
+                    BFIS_total_mean ~ parent_sumscale + LD_Pred_ANX_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    parent_sumscale ~ LD_Pred_ANX_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+          
+                    LD_Pred_ANX_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    '
+fit_mod <- sem(parent_anx, data=parent_model, estimator = "ML", missing="FIML.x")
+summary(fit_mod, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_mod, ci = TRUE, level = 0.95)
+
+##### Single PGS-Neuroticism in Parent Subset #####
+parent_neuro <- '
+                    # regressions
+                    BFIS_total_mean ~ parent_sumscale + LD_Pred_NEURO_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    parent_sumscale ~ LD_Pred_NEURO_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+          
+                    LD_Pred_NEURO_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    '
+fit_mod <- sem(parent_neuro, data=parent_model, estimator = "ML", missing="FIML.x")
+summary(fit_mod, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_mod, ci = TRUE, level = 0.95)
+
+##### Single PGS-Education attainment in Parent Subset #####
+parent_ea <- '
+                    # regressions
+                    BFIS_total_mean ~ parent_sumscale + LD_Pred_EA_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    parent_sumscale ~ LD_Pred_EA_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+          
+                    LD_Pred_EA_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    '
+fit_mod <- sem(parent_ea, data=parent_model, estimator = "ML", missing="FIML.x")
+summary(fit_mod, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_mod, ci = TRUE, level = 0.95)
+
+##### Single PGS-BMI in Parent Subset #####
+parent_bmi <- '
+                    # regressions
+                    BFIS_total_mean ~ parent_sumscale + LD_Pred_BMI_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    parent_sumscale ~ LD_Pred_BMI_std + sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+          
+                    LD_Pred_BMI_std ~ sex + SR_age8 + SR_age10 + pc1_std + pc2_std + pc3_std + pc4_std + pc5_std + pc6_std + pc7_std + pc8_std + pc9_std + pc10_std
+                    '
+fit_mod <- sem(parent_bmi, data=parent_model, estimator = "ML", missing="FIML.x")
+summary(fit_mod, fit.measures=TRUE, standardized=TRUE)
+parameterEstimates(fit_mod, ci = TRUE, level = 0.95)
+```
